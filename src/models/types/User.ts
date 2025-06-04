@@ -1,4 +1,6 @@
 import { ObjectId } from "mongodb";
+import { Post } from "./Post";
+import { Comment } from "./Comment";
 
 export interface User {
   _id?: ObjectId; // optional during creation
@@ -24,3 +26,8 @@ export interface User {
     bs: string;
   };
 }
+
+export type UserWithPostsAndComments = Omit<User, "_id"> & {
+  posts: (Omit<Post, "_id" | "userId"> & { comments: Omit<Comment, "_id" | "postId">[] })[];
+};
+

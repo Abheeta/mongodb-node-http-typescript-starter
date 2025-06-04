@@ -1,8 +1,9 @@
 // controllers/deleteUserById.ts
 import { client } from '../db';
-import { User } from '../models/types/User';
+import { User, UserWithPostsAndComments } from '../models/types/User';
 import { Post } from '../models/types/Post';
 import { Comment } from '../models/types/Comment';
+import { MongoBulkWriteError } from 'mongodb';
 
 export async function postUserById(userId: string, updatedUser: User): Promise<User> {
   const db = client.db('swift-assess');
@@ -129,24 +130,148 @@ export async function getUserWithPostsAndComments(userId: string) {
   const postsCol = db.collection<Post>('posts');
   const commentsCol = db.collection<Comment>('comments');
 
-  const user = await usersCol.findOne({ id: Number(userId) });
-  if (!user) {
-    return null; // not found
+  // const user = await usersCol.findOne({ id: Number(userId) }, { projection: { _id: 0 } });
+ 
+
+  // const posts = await postsCol.find({ userId: Number(userId) }).project({ _id: 0, userId: 0 }).toArray();
+  // const postIds = posts.map(post => post.id);
+
+  // const comments = await commentsCol.find({ postId: { $in: postIds } }).project({ _id: 0, postId: 0 }).toArray();
+
+  const user = await usersCol.aggregate<[UserWithPostsAndComments]>(
+    [
+      {
+        $match:
+          /**
+           * query: The query in MQL.
+           */
+          {
+            id: Number(userId)
+          }
+      },
+      {
+        $project:
+          /**
+           * specifications: The fields to
+           *   include or exclude.
+           */
+          {
+            _id: 0
+          }
+      },
+      {
+        $lookup:
+          /**
+           * from: The target collection.
+           * localField: The local join field.
+           * foreignField: The target join field.
+           * as: The name for the results.
+           * pipeline: Optional pipeline to run on the foreign collection.
+           * let: Optional variables to use in the pipeline field stages.
+           */
+          {
+            from: "posts",
+            localField: "id",
+            foreignField: "userId",
+            as: "posts"
+          }
+      },
+      {
+        $project:
+          /**
+           * specifications: The fields to
+           *   include or exclude.
+           */
+          {
+            "posts.userId": 0,
+            "posts._id": 0
+          }
+      },
+      {
+        $unwind:
+          /**
+           * path: Path to the array field.
+           * includeArrayIndex: Optional name for index.
+           * preserveNullAndEmptyArrays: Optional
+           *   toggle to unwind null and empty values.
+           */
+          {
+            path: "$posts"
+          }
+      },
+      {
+        $lookup:
+          /**
+           * from: The target collection.
+           * localField: The local join field.
+           * foreignField: The target join field.
+           * as: The name for the results.
+           * pipeline: Optional pipeline to run on the foreign collection.
+           * let: Optional variables to use in the pipeline field stages.
+           */
+          {
+            from: "comments",
+            localField: "posts.id",
+            foreignField: "postId",
+            as: "posts.comments"
+          }
+      },
+      {
+        $project:
+          /**
+           * specifications: The fields to
+           *   include or exclude.
+           */
+          {
+            "posts.comments._id": 0,
+            "posts.comments.postId": 0
+          }
+      },
+      {
+        $group: {
+          _id: "$id",
+          id: {
+            $first: "$id"
+          },
+          name: {
+            $first: "$name"
+          },
+          username: {
+            $first: "$username"
+          },
+          email: {
+            $first: "$email"
+          },
+          address: {
+            $first: "$address"
+          },
+          phone: {
+            $first: "$phone"
+          },
+          website: {
+            $first: "$website"
+          },
+          company: {
+            $first: "$company"
+          },
+          posts: {
+            $push: "$posts"
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0
+        }
+      }
+    ]
+  ).toArray();
+
+  if (!user[0]) {
+    throw new Error('NOT_FOUND');
   }
 
-  const posts = await postsCol.find({ userId: Number(userId) }).toArray();
-  const postIds = posts.map(post => post.id);
-
-  const comments = await commentsCol.find({ postId: { $in: postIds } }).toArray();
-
-  // Return combined data as requested
-  return {
-    ...user,
-    posts: posts.map(post => ({
-      ...post,
-      comments: comments.filter(comment => comment.postId === post.id),
-    })),
-  };
+  return user[0];
 }
 
 export async function insertUserData(): Promise<void> {
@@ -174,7 +299,15 @@ export async function insertUserData(): Promise<void> {
     // 4. Bulk insert into collections
     await usersCol.bulkWrite(
       selectedUsers.map(user => ({ insertOne: { document: user } })),
-    );
+    ).catch(error => 
+      {
+        if (error instanceof MongoBulkWriteError && error.code === 11000) {
+           throw new Error('Trying to insert existing user');
+        }
+        console.error(error)
+        throw error;
+      }
+  );
 
     await postsCol.bulkWrite(
       filteredPosts.map(post => ({ insertOne: { document: post } })),
@@ -188,6 +321,6 @@ export async function insertUserData(): Promise<void> {
     return;
   } catch (error) {
     // Propagate error to caller
-    throw new Error((error as Error).message || 'Unknown error occurred');
+    throw error;
   }
 }

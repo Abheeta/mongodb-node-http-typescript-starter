@@ -39,6 +39,7 @@
 // // }
 
 import { MongoClient, ServerApiVersion } from "mongodb";
+import { resolve } from "styled-jsx/css";
 
 const uri: string = process.env.MONGODB_URI !;
 const dbName: string = process.env.MONGODB_DB !;
@@ -57,14 +58,17 @@ const client = new MongoClient(uri, {
     strict: true,
     deprecationErrors: true,
   },
+
 });
 
 async function run(): Promise<void> {
   try {
     await client.connect();
-
     // Check connection by pinging the admin database
     await client.db("swift-assess").command({ ping: 1 });
+    await client.db("swift-assess").collection("users").createIndex({ id: 1 }, { unique: true });
+    await client.db("swift-assess").collection("posts").createIndex({ userId: 1 });
+    await client.db("swift-assess").collection("comments").createIndex({ postId: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } catch (err: unknown) {
     console.error("MongoDB connection error:", err);

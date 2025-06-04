@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'http';
-import { insertUser, deleteAllUsers, getUserWithPostsAndComments, deleteUserById, postUserById} from './controllers/User';
+import { insertUser, deleteAllUsers, getUserWithPostsAndComments, deleteUserById, postUserById, insertUserData} from './controllers/user';
+import { updatePost } from './controllers/post';
 
 // Utility: Read and parse request body
 async function parseRequestBody(req: IncomingMessage): Promise<any> {
@@ -21,6 +22,7 @@ type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
 const routes: Record<string, Handler> = {
   'GET /load': async (_req, res) => {
+    await insertUserData();
     res.writeHead(200);
     res.end();
   },
@@ -54,6 +56,40 @@ const routes: Record<string, Handler> = {
       }
     }
   },
+
+  'POST /posts': async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const post = await parseRequestBody(req); // Assume post has `id`, `userId`, and other fields
+
+      await updatePost(post);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Post updated successfully' }));
+    } catch (err: any) {
+      let statusCode = 500;
+      let message = 'Internal Server Error';
+
+      switch (err.message) {
+        case 'POST_NOT_FOUND':
+          statusCode = 404;
+          message = 'Post not found';
+          break;
+        case 'UNAUTHORIZED_USER':
+          statusCode = 403;
+          message = 'You are not allowed to update this post';
+          break;
+        case 'UPDATE_FAILED':
+          statusCode = 400;
+          message = 'Update failed – nothing changed';
+          break;
+      }
+
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: message }));
+    }
+  }
+
+
 };
 
 export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
@@ -69,10 +105,24 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     // Handle GET /users/:userId
     if (method === 'GET' && url.startsWith('/users/')) {
       const userId = url.split('/')[2];
-      const user = await getUserWithPostsAndComments(userId);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(user));
-      return;
+      try {
+        const user = await getUserWithPostsAndComments(userId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(user));
+      } catch (err: any) {
+        if (err.message === 'INVALID_ID') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid user ID' }));
+        } else if (err.message === 'NOT_FOUND') {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `User with id ${userId} not found.` }));
+        } else {
+          throw err;
+        }
+      } finally {
+        return;
+      }
+      
     }
 
     // Handle DELETE /users/:userId
@@ -82,6 +132,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         const message = await deleteUserById(userId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message }));
+
       } catch (err: any) {
         if (err.message === 'INVALID_ID') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -129,7 +180,8 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     res.end('Not Found');
   } catch (err) {
     // Global error fallback
+    console.error(err);
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Internal Server Error' }));
+    res.end(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal Server Error' }));
   }
 }
