@@ -1,6 +1,6 @@
-import { IncomingMessage, ServerResponse } from 'http';
-import { insertUser, deleteAllUsers, getUserWithPostsAndComments, deleteUserById, postUserById, insertUserData} from './controllers/user';
-import { updatePost } from './controllers/post';
+// import { IncomingMessage, ServerResponse } from 'http';
+// import { insertUser, deleteAllUsers, getUserWithPostsAndComments, deleteUserById, postUserById, insertUserData} from './controllers/user';
+// import { updatePost } from './controllers/post';
 
 // Utility: Read and parse request body
 async function parseRequestBody(req: IncomingMessage): Promise<any> {
