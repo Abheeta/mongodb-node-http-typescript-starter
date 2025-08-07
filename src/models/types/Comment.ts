@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { ObjectID } from "mongodb";
 
 export interface Comment {
   _id?: ObjectId;
